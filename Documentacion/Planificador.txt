@@ -1,0 +1,86 @@
+ESTRUCTURAS UTILIZADAS Y ENUMS:
+- e_estado: enumera los diferentes estados que puede adoptar un proceso, se utilizó un diagrama de 5 estados
+- t_planificadorConfig: Contiene la configuración del proceso leida con las funciones de las commons
+- t_periodo: estructura auxiliar para reflejar un período de tiempo, contiene un tiempo inicial y un tiempo final, se usa junto con funciones temporales de las commons
+- t_pcb: contiene la información de los mProc (Pid, nombre, path, puntero de instrucción, flag de aborto o finalización, estado -enum-, métricas), está presente en las listas de procesos activos y finalizados
+- t_entradaSalida: estructura que representa una solicitud de entrada y salida, se compone de un pid y un tiempo -simula el tiempo que tardaría la E/S-
+- t_cpu: estructura que contiene la información de las distintas conexiones con hilos de cpu para su correcta administración (socket, número de core, estado y último pid ejecutado), está presente en la lista de CPUs
+- t_conexiones_solicitudes_recursos: esta estructura es diferente a las demás, no representa nada en sí misma sino que es un agrupamiento de recursos, técnica utilizada para poder instanciar hilos y que los mismos compartan mucha información de diferente tipo.
+En esta estructura se guardan las CPUs conectadas, la cola de ready, la lista de procesos activos, la lista de procesos finalizados, la cola de entrada-salida, las configuraciones del proceso, los logs, el último pid asignado y un socket con una conexión al proceso CPU
+- t_paquete_ejecutar: estructura que contiene un contexto de ejecución para un hilo de CPU (path, proxima instrucción, ráfaga y pid)
+- t_list_retorno: estructura que contiene el retorno de la ráfaga de CPU con los correspondientes logs
+
+FUNCIONAMIENTO, LÓGICA Y FUNCIONES:
+Como todo programa en C, el planificador inicia por el main, en este lo único que se hace es cargar las configuraciones del proceso, crear el log e inicializar todas las variables compartidas a utilizar (listas, colas, y otros punteros).
+Posteriormente se inicializan los semáforos y finalmente se declaran y se ponen a ejecutar los diferentes hilos que realizarán todas las tareas del planificador
+La lógica del planificador es llevada a cabo por 4 hilos:
+1) th_consola: como su nombre lo indica este hilo ejecuta la función consola para que la misma siempre esté disponible y el usuario pueda indicar en cualquier momento una serie de comandos según lo desee
+2) th_callCenter: este hilo ejecuta una función llamada handlerSelect, a grandes razgos la misma se encarga de recibir, aceptar y manejar las distintas conexiones y restornos con los hilos de CPU
+3) th_jefesito: en este hilo se ejecuta la función de nombre solicitarEjecuciones, esta función es la encargada de lanzar las solicitudes de ejecución a los hilos de CPU
+4) th_secretaria: el último hilo simula ser un módulo DMA y es el encargado de la administración de las E/S del sistema
+
+/*-----Funciones de Hilos -----*/
+void* consola(void*):
+	Muestra constantemente un menú con las opciones de comandos, lee los diferentes comandos (con o sin parámetros), interpreta paths relativos y llama las distintas funciones según se solicite
+	Para saber si un comando tiene parámetro se procede a buscar espacios en el texto ingresado, de tener un espacio se interpreta al comando y al parámetro como elementos independientes y se los maneja según corresponda
+
+void* solicitarEjecuciones(void*):
+	Utilizando los recursos compartidos verifica constantemente la disponibilidad de CPUs, de encontrar alguna CPU disponible procede a verificar si existen procesos listos, de ser así crea un nuevo t_paquete_ejecutar con toda la información del proceso y determina la ráfaga de CPU según el algoritmo, finalmente envía el paquete a la CPU elegida
+
+void* handlerSelect(void*):
+	Es una de las funciones principales del planificador, como su nombre lo indica utiliza una función select para su funcionamiento.
+	Se procede a abrir un puerto escucha, y se lo configura como parámetro del select, a partir de ahí el select ejecuta dos rutinas, una para el listennerSocket y una para los restantes.
+	Si se trata del puerto escucha se procede a aceptar a un nuevo cliente.
+	Si no se trata del puerto escucha significa que es una conexión de CPU, la misma a su vez puede ser de dos tipos:
+	Existe una conexión única y principal con CPU que es la que se utiliza para saber el porcentaje de uso de cara hilo de CPU, por lo que si es este el FD que se comunica se procede a printear su respuesta
+	Por otro lado, si no ocurrió nada de esto significa que el FD que se está comunicando es un hilo de CPU que ha finalizado una ráfaga de ejecución, aquí es cuando se aplica la lógica más compleja
+	Se recibe la estructura el packete vía socket y se lo deserealiza como t_list_retorno, se proceden a actualizar el puntero a la próxima instrucción según corresponda, se finaliza el período de ejecución y se inicia un período de espera, se loguea lo realizado por CPU y se procede a administrar el mProc de acuerdo al resultado del último log.
+	Si el último log fuera una E/S se lo encola para ser manejado por el DMA, si fuera finalizado se lo saca de la lista de procesos activos y se lo pone en lista de finalizados, si fuera falló se elimina al mProc del sistema, y finalimente, si no ocurriera nada de esto significa que el proceso salió por quantum por lo que debe volver a encolarse para seguir ejecutando según el algoritmo de planificación
+	También se actualiza el estado del proceso según corresponda
+
+void* dma(void*):
+	Es una función simple que se encarga de desencolar peticiones de E/S de una cola y simular su ejecución a través del uso de una función sleep(), además realiza tareas burocráticas como logs y actualización de estado de los procesos de bloqueado a listo y los encola nuevamente
+
+/*-----Funciones de Consola -----*/
+void cpu_status(int);
+	Solicita a la conexión principal con el proceso CPU que informe el estado de uso de cada uno de sus hilos
+
+void process_status_historico(t_list*, t_list*);
+void process_status(t_list*, int);
+	Son dos funciones similares que iteran la lista de procesos señalando por pantalla en que estado se encuentra cada uno de ellos
+
+void ps(void*);
+	Función auxiliar utilizada en la iteración, simplemente determina cual es el estado de un proceso según la inforamción contenida en su PCB
+
+void finalizar_PID(t_list*, int);
+	Esta función recibe un PID, solicita la PCB del proceso con dicho PID y procede a finalizarlo.
+	La finalización se compone de dos partes, mover el puntero de instrucción a la instrucción finalizar y activar el flag de aborto, impidiendo así que  dicho proceso pueda ser encolado para una E/S, o que ejecute una E/S, o que se mueva nuevamente su puntero de instrucción
+
+void finalizarProceso(t_pcb*);
+	Esta función es auxiliar para la función finalizar_PID, hace el trabajo de bajo nivel de recorrer el mCod del proceso y retornar un puntero a la última instrucción
+
+void correr_PATH(t_list*, t_queue*, int*, char*, t_log*);
+	Es la última de las funciones invocadas por consola, y es la encargada de recibir un PATH (ruta relativa a un mCod) y a partir de esta crear al nuevo proceso.
+	La creación del nuevo proceso implica reservar memoria para un nuevo t_pcb e inicializar y completar cada uno de los elementos de la estructura, luego de esto se indica que el proceso dejó de ser nuevo y pasó a ser listo, lo que signifa que debe ser encolado en la cola de ready, se lo encola y se informa de la creación.
+
+/*-----Funciones Auxiliares -----*/
+t_pcb* get_proceso(t_list*, int );
+	Función auxiliar que recibe un PID y retorna el elemento t_pcb que corresponde a ese PID
+
+void get_tiempo(int*, int*, int*, int*);	
+void convertir_tiempo(char*, int*, int*, int*, int*);
+	Funciones temporales auxiliares para el manejo de las métricas de procesos
+
+void logear_metricas(t_log*, t_pcb*);
+	Cálculo aritmético y logueo de métricas de procesos
+
+SEMAFOROS:
+Se utilizan semáforos para el manejo de listas, colas y recursos críticos como el log, que son compartidos por los diferentes hilos.
+Por esta misma razón se encuentran declarados como variables globales en un .h, de forma tal que todos los hilos puedan hacer uso de ellos.
+Ellos son:
+- mutex_cpus: sincronización de lista de los distintos cores
+- mutex_procesos: sincronización de lista procesos activos
+- mutex_colaReady: sincronización de cola de procesos listos para ejecución
+- mutex_entradaSalida: sincronización de cola de procesos bloqueados esperando por un evento de entrada-salida
+- mutex_logs: sincronización del archivo de log
+- mutex_finalizados: sincronización de lista de procesos finalizados

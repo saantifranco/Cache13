@@ -1,0 +1,48 @@
+SendAll:
+- Inicio
+- Se declaran variables
+- Se establece como cantidad de bytes pendientes el tamaño de la data package (data_size)
+- Mientras que la cantidad de bytes enviados (a fines prácticos, offset), sea menor a la cantidad total a enviar se sigue mandando
+- El send retorna la ultima cantidad de bytes mandados, con esta información se actualiza tanto el offset como la cantidad de bytes pendientes
+- Fin
+
+RecvAll:
+- Inicio
+- Se declaran variables
+- Se establece como cantidad de bytes pendientes el tamaño de un entero, que corresponde al data_size
+- Mientras que la cantidad de bytes recibidos (a fines prácticos, offset), sea menor a la cantidad total a recibir se sigue recibiendo
+- El recv retorna la ultima cantidad de bytes recibidos, con esta información se actualiza tanto el offset como la cantidad de bytes pendientes
+- Una vez que tenemos en data_size la cantidad de bytes correspondientes a la longitud del data hacemos el malloc para la data, así reservamos su memoria
+- Inicializamos las variables de vuelta y decimos que, ahora, los bytes pendientes son iguales al data_size
+- Procedemos a recibir la información en sí, o sea, el data
+- Mientras que la cantidad de bytes recibidos (a fines prácticos, offset), sea menor a la cantidad total a recibir se sigue recibiendo
+- Fin
+
+NOTA VIP:
+El send usa data_size como cantidad de bytes a mandar.
+A su vez la cantidad de bytes de información que me interesa se guardan al principio del data de forma redudante.
+Esto último es equivalente al data_size - sizeof(int). Este int funcionará de header a la hora de hacer el recv.
+Esta redundancia permite que el primer recv sepa cuantos bytes va a tener que leer a continuacion.
+Es por eso que, a simple vista, se deserializa un parámetro menos que lo que se serializo previamente
+Conclusión: si uso serializar y deserializar en una estructura por que sí, sin usar las funciones SendAll y RecvAll no obtendrá la misma estructura que antes
+
+Serializacion:
+- Inicialmente partimos de la idea de convertir cualquier estructura en una del tipo t_paquete_envio* para poder utilziar las funciones SendAll y RecvAll de manera común
+- En la variable tamanioDatos guardamos la sumatoria de los tamaños de todas las cosas que contiene la estructura
+*Debe sumarse un sizeof(int) para guardar la redundancia correspondiente a la longitud total al principio del data
+**Debe sumarse un sizeof(int) por cada variable char* que contenga la estructura para guarda el valor de la longitud de dicha variable y poder deserializarla correctamente
+-Declaramos void* stream y reservamos memoria igual al tamanioDatos
+-Realizamos los memcopy y actualizamos un auxiliar y un offset respetando el siguiente orden:
+1) La redundancia del tamaño total de bytes
+2) Las variables de la estructura
+NOTA:
+*El orden al serializar y deserializar debe ser el mismo ya que el memcpy trabaja la info por bytes
+**Previo a cada variable char* se debe hacer el memcpy de su correspondiente "header"
+-Finalmente guardamos en data el contenido de stream y en data_size el valor de offset
+-Retornamos la estructura genérica (t_paquete_envio*) lista para ser enviada via SendAll
+
+Deserializacion:
+- Inicialmente partimos de la idea de convertir un  t_paquete_envio* (estructura genérica resultado de usar RecvAll) en una estructura del tipo deseado para poder utilziar las funciones SendAll y RecvAll de manera común
+- Recordamos que la redundancia de la longitud del data ya fue "recortada" por el RecvAll por lo que NO debo deserializarla
+- Procedemos a hacer el proceso totalmente inverso a la serializacion
+- Retornamos la estructura deseada
