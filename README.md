@@ -19,7 +19,7 @@ Reemplazar dichas estructuras por semáforos contadores que bloqueen al proceso 
 
 Los semáforos en C con el estándar POSIX.
 
-"#include <semaphore.h>" //libreria
+Biblioteca "semaphore.h"
 
 sem_t sem; //declaracion del tipo de dato
 
