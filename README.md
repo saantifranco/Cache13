@@ -9,3 +9,13 @@ while(1){
   }
 }
 Reemplazar dichas estructuras por semáforos contadores que bloqueen al proceso cuando así corresponda.
+Los semáforos en C con el estándar POSIX.
+#include <semaphore.h> //libreria
+sem_t sem; //declaracion del tipo de dato
+Operaciones:
+int sem_init(sem_t *sem, int pshared, unsigned int value);
+int sem_destroy(sem_t *sem);
+int sem_wait(sem_t *sem);
+int sem_trywait(sem_t *sem);
+int sem_post(sem_t *sem);
+int sem_getvalue(sem_t *sem, int *sval);
